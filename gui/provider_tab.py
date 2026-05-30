@@ -1,189 +1,163 @@
 """
-Provider 配置标签页
-参考 CC Switch 的 Provider 管理界面：
+Provider 配置标签页（tkinter 版本）
 - 左侧 Provider 列表（带添加/删除）
 - 右侧选中 Provider 的详细配置表单
 """
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
-    QLabel, QLineEdit, QPushButton, QFormLayout, QMessageBox, QSplitter
-)
+import tkinter as tk
+from tkinter import ttk, messagebox
 
 from config import Provider
 
 
-class ProviderTab(QWidget):
-    config_changed = pyqtSignal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
+class ProviderTab(tk.Frame):
+    def __init__(self, master=None, on_change=None, **kwargs):
+        super().__init__(master, **kwargs)
+        self.on_change = on_change
         self.providers = []
         self.current_provider_id = None
         self._init_ui()
 
     def _init_ui(self):
-        main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(12, 12, 12, 12)
-        main_layout.setSpacing(12)
+        # 左右分栏
+        self.paned = tk.PanedWindow(self, orient=tk.HORIZONTAL)
+        self.paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
         # 左侧 Provider 列表
-        left_panel = QVBoxLayout()
-        left_panel.addWidget(QLabel("Providers"))
+        left = tk.Frame(self.paned, width=200)
+        tk.Label(left, text="Providers", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(0, 4))
 
-        self.list_widget = QListWidget()
-        self.list_widget.currentRowChanged.connect(self._on_selection_changed)
-        left_panel.addWidget(self.list_widget)
+        self.listbox = tk.Listbox(left, selectmode=tk.SINGLE)
+        self.listbox.pack(fill=tk.BOTH, expand=True)
+        self.listbox.bind("<<ListboxSelect>>", self._on_select)
 
-        btn_layout = QHBoxLayout()
-        self.add_btn = QPushButton("+ 添加")
-        self.add_btn.clicked.connect(self._add_provider)
-        self.del_btn = QPushButton("- 删除")
-        self.del_btn.clicked.connect(self._delete_provider)
-        btn_layout.addWidget(self.add_btn)
-        btn_layout.addWidget(self.del_btn)
-        left_panel.addLayout(btn_layout)
+        btn_frame = tk.Frame(left)
+        btn_frame.pack(fill=tk.X, pady=(4, 0))
+        tk.Button(btn_frame, text="+ 添加", command=self._add).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Button(btn_frame, text="- 删除", command=self._delete).pack(side=tk.LEFT)
 
-        left_widget = QWidget()
-        left_widget.setLayout(left_panel)
-        left_widget.setMaximumWidth(240)
+        self.paned.add(left)
 
         # 右侧配置表单
-        right_panel = QVBoxLayout()
-        right_panel.addWidget(QLabel("Provider 配置"))
+        right = tk.Frame(self.paned, padx=12)
+        tk.Label(right, text="Provider 配置", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(0, 8))
 
-        form = QFormLayout()
-        form.setSpacing(10)
+        form = tk.Frame(right)
+        form.pack(fill=tk.X)
 
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("显示名称，如 Kimi Code")
-        form.addRow("名称:", self.name_edit)
+        tk.Label(form, text="名称:").grid(row=0, column=0, sticky=tk.W, pady=4)
+        self.name_var = tk.StringVar()
+        tk.Entry(form, textvariable=self.name_var, width=40).grid(row=0, column=1, sticky=tk.EW, padx=(8, 0))
 
-        self.url_edit = QLineEdit()
-        self.url_edit.setPlaceholderText("https://api.kimi.com/coding/v1")
-        form.addRow("Base URL:", self.url_edit)
+        tk.Label(form, text="Base URL:").grid(row=1, column=0, sticky=tk.W, pady=4)
+        self.url_var = tk.StringVar()
+        tk.Entry(form, textvariable=self.url_var, width=40).grid(row=1, column=1, sticky=tk.EW, padx=(8, 0))
 
-        self.key_edit = QLineEdit()
-        self.key_edit.setPlaceholderText("sk-xxxxxxxx")
-        self.key_edit.setEchoMode(QLineEdit.Password)
-        form.addRow("API Key:", self.key_edit)
+        tk.Label(form, text="API Key:").grid(row=2, column=0, sticky=tk.W, pady=4)
+        self.key_var = tk.StringVar()
+        self.key_entry = tk.Entry(form, textvariable=self.key_var, width=40, show="*")
+        self.key_entry.grid(row=2, column=1, sticky=tk.EW, padx=(8, 0))
 
-        self.model_edit = QLineEdit()
-        self.model_edit.setPlaceholderText("kimi-k2-0711-preview")
-        form.addRow("默认模型:", self.model_edit)
+        tk.Label(form, text="默认模型:").grid(row=3, column=0, sticky=tk.W, pady=4)
+        self.model_var = tk.StringVar()
+        tk.Entry(form, textvariable=self.model_var, width=40).grid(row=3, column=1, sticky=tk.EW, padx=(8, 0))
 
-        self.show_key_btn = QPushButton("显示")
-        self.show_key_btn.setCheckable(True)
-        self.show_key_btn.toggled.connect(self._toggle_key_visibility)
-        form.addRow("", self.show_key_btn)
+        self.show_key_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(form, text="显示 Key", variable=self.show_key_var, command=self._toggle_key).grid(row=4, column=1, sticky=tk.W, padx=(8, 0), pady=4)
 
-        form_widget = QWidget()
-        form_widget.setLayout(form)
-        right_panel.addWidget(form_widget)
+        form.columnconfigure(1, weight=1)
 
-        self.save_btn = QPushButton("保存当前配置")
-        self.save_btn.setStyleSheet("QPushButton { background-color: #0066cc; color: white; padding: 8px; }")
-        self.save_btn.clicked.connect(self._save_current)
-        right_panel.addWidget(self.save_btn)
-        right_panel.addStretch()
+        save_btn = tk.Button(right, text="保存当前配置", bg="#0066cc", fg="white", command=self._save)
+        save_btn.pack(anchor=tk.W, pady=(12, 0))
 
-        right_widget = QWidget()
-        right_widget.setLayout(right_panel)
-
-        splitter = QSplitter()
-        splitter.addWidget(left_widget)
-        splitter.addWidget(right_widget)
-        splitter.setStretchFactor(1, 3)
-        main_layout.addWidget(splitter)
+        self.paned.add(right)
 
     def load_providers(self, providers, current_id):
-        """从外部加载 provider 列表"""
         self.providers = list(providers)
         self.current_provider_id = current_id
         self._refresh_list()
-        self._select_provider(current_id)
+        self._select_by_id(current_id)
 
     def get_providers(self):
-        """返回当前所有 provider"""
         return self.providers
 
     def get_current_provider_id(self):
         return self.current_provider_id
 
     def _refresh_list(self):
-        self.list_widget.clear()
+        self.listbox.delete(0, tk.END)
         for p in self.providers:
-            item = QListWidgetItem(p.name or p.id)
-            item.setData(256, p.id)  # Qt.UserRole = 256
-            self.list_widget.addItem(item)
+            self.listbox.insert(tk.END, p.name or p.id)
 
-    def _select_provider(self, provider_id):
-        for i in range(self.list_widget.count()):
-            item = self.list_widget.item(i)
-            if item.data(256) == provider_id:
-                self.list_widget.setCurrentRow(i)
+    def _select_by_id(self, provider_id):
+        for i, p in enumerate(self.providers):
+            if p.id == provider_id:
+                self.listbox.selection_clear(0, tk.END)
+                self.listbox.selection_set(i)
+                self.listbox.see(i)
+                self._load_form(p)
                 return
 
-    def _on_selection_changed(self, row):
-        if row < 0 or row >= len(self.providers):
-            self._clear_form()
+    def _on_select(self, event):
+        selection = self.listbox.curselection()
+        if not selection:
             return
-        provider = self.providers[row]
-        self.current_provider_id = provider.id
-        self.name_edit.setText(provider.name)
-        self.url_edit.setText(provider.base_url)
-        self.key_edit.setText(provider.api_key)
-        self.model_edit.setText(provider.model)
+        idx = selection[0]
+        if 0 <= idx < len(self.providers):
+            p = self.providers[idx]
+            self.current_provider_id = p.id
+            self._load_form(p)
 
-    def _clear_form(self):
-        self.name_edit.clear()
-        self.url_edit.clear()
-        self.key_edit.clear()
-        self.model_edit.clear()
+    def _load_form(self, p):
+        self.name_var.set(p.name)
+        self.url_var.set(p.base_url)
+        self.key_var.set(p.api_key)
+        self.model_var.set(p.model)
 
-    def _toggle_key_visibility(self, checked):
-        self.key_edit.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)
-        self.show_key_btn.setText("隐藏" if checked else "显示")
+    def _toggle_key(self):
+        if self.show_key_var.get():
+            self.key_entry.config(show="")
+        else:
+            self.key_entry.config(show="*")
 
-    def _add_provider(self):
-        import uuid as _uuid
-        new_id = "provider_" + _uuid.uuid4().hex[:6]
-        new_provider = Provider(id=new_id, name="新 Provider")
-        self.providers.append(new_provider)
+    def _add(self):
+        import uuid
+        new_id = "provider_" + uuid.uuid4().hex[:6]
+        p = Provider(id=new_id, name="新 Provider")
+        self.providers.append(p)
         self.current_provider_id = new_id
         self._refresh_list()
-        self._select_provider(new_id)
-        self.config_changed.emit()
+        self._select_by_id(new_id)
+        if self.on_change:
+            self.on_change()
 
-    def _delete_provider(self):
-        row = self.list_widget.currentRow()
-        if row < 0 or row >= len(self.providers):
+    def _delete(self):
+        selection = self.listbox.curselection()
+        if not selection:
             return
-        provider = self.providers[row]
-        reply = QMessageBox.question(
-            self, "确认删除",
-            f'确定要删除 Provider "{provider.name}" 吗？',
-            QMessageBox.Yes | QMessageBox.No
-        )
-        if reply == QMessageBox.Yes:
-            self.providers.pop(row)
-            if self.current_provider_id == provider.id:
+        idx = selection[0]
+        p = self.providers[idx]
+        if messagebox.askyesno("确认删除", f'确定要删除 Provider "{p.name}" 吗？'):
+            self.providers.pop(idx)
+            if self.current_provider_id == p.id:
                 self.current_provider_id = self.providers[0].id if self.providers else None
             self._refresh_list()
-            self._select_provider(self.current_provider_id)
-            self.config_changed.emit()
+            self._select_by_id(self.current_provider_id)
+            if self.on_change:
+                self.on_change()
 
-    def _save_current(self):
-        row = self.list_widget.currentRow()
-        if row < 0 or row >= len(self.providers):
-            QMessageBox.warning(self, "提示", "请先选择一个 Provider")
+    def _save(self):
+        selection = self.listbox.curselection()
+        if not selection:
+            messagebox.showwarning("提示", "请先选择一个 Provider")
             return
-        provider = self.providers[row]
-        provider.name = self.name_edit.text().strip() or provider.name
-        provider.base_url = self.url_edit.text().strip()
-        provider.api_key = self.key_edit.text().strip()
-        provider.model = self.model_edit.text().strip()
+        idx = selection[0]
+        p = self.providers[idx]
+        p.name = self.name_var.get().strip() or p.name
+        p.base_url = self.url_var.get().strip()
+        p.api_key = self.key_var.get().strip()
+        p.model = self.model_var.get().strip()
         self._refresh_list()
-        self._select_provider(provider.id)
-        self.config_changed.emit()
-        QMessageBox.information(self, "保存成功", "Provider 配置已更新")
+        self._select_by_id(p.id)
+        if self.on_change:
+            self.on_change()
+        messagebox.showinfo("保存成功", "Provider 配置已更新")

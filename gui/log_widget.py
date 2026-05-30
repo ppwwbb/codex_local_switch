@@ -1,15 +1,11 @@
 """
-日志输出组件，带级别过滤和自动滚动
+日志输出组件，基于 tkinter，带级别过滤和自动滚动
 """
-from PyQt5.QtCore import pyqtSignal, QObject
-from PyQt5.QtWidgets import QTextEdit, QVBoxLayout, QWidget, QHBoxLayout, QPushButton, QComboBox, QLabel
+import tkinter as tk
+from tkinter import ttk
 
 
-class LogEmitter(QObject):
-    new_log = pyqtSignal(str, str)  # level, message
-
-
-class LogWidget(QWidget):
+class LogWidget(tk.Frame):
     """带过滤和清除功能的日志面板"""
 
     LEVEL_COLORS = {
@@ -19,55 +15,51 @@ class LogWidget(QWidget):
         "ERROR": "#cc0000",
     }
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.emitter = LogEmitter()
-        self.emitter.new_log.connect(self._append_log)
+    def __init__(self, master=None, **kwargs):
+        super().__init__(master, **kwargs)
         self._init_ui()
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
         # 顶部工具栏
-        toolbar = QHBoxLayout()
-        toolbar.addWidget(QLabel("日志级别:"))
-        self.level_combo = QComboBox()
-        self.level_combo.addItems(["DEBUG", "INFO", "WARNING", "ERROR"])
-        self.level_combo.setCurrentText("INFO")
-        toolbar.addWidget(self.level_combo)
+        toolbar = tk.Frame(self)
+        toolbar.pack(fill=tk.X, pady=(0, 4))
 
-        self.clear_btn = QPushButton("清空")
-        self.clear_btn.clicked.connect(self.clear)
-        toolbar.addWidget(self.clear_btn)
+        tk.Label(toolbar, text="日志级别:").pack(side=tk.LEFT)
+        self.level_var = tk.StringVar(value="INFO")
+        self.level_combo = ttk.Combobox(
+            toolbar, textvariable=self.level_var,
+            values=["DEBUG", "INFO", "WARNING", "ERROR"],
+            state="readonly", width=10
+        )
+        self.level_combo.pack(side=tk.LEFT, padx=(4, 8))
 
-        toolbar.addStretch()
-        layout.addLayout(toolbar)
+        self.clear_btn = tk.Button(toolbar, text="清空", command=self.clear)
+        self.clear_btn.pack(side=tk.LEFT)
 
         # 日志文本框
-        self.text_edit = QTextEdit()
-        self.text_edit.setReadOnly(True)
-        self.text_edit.setLineWrapMode(QTextEdit.WidgetWidth)
-        layout.addWidget(self.text_edit)
+        self.text = tk.Text(self, wrap=tk.WORD, state=tk.DISABLED, height=12)
+        self.text.pack(fill=tk.BOTH, expand=True)
 
-    def log(self, level: str, message: str) -> None:
-        """线程安全的日志写入（通过信号）"""
-        self.emitter.new_log.emit(level, message)
+        scrollbar = ttk.Scrollbar(self.text, command=self.text.yview)
+        self.text.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-    def _append_log(self, level: str, message: str) -> None:
-        """实际追加日志到界面"""
+    def log(self, level, message):
+        """追加日志"""
         # 级别过滤
-        current_level = self.level_combo.currentText()
         levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
-        if levels.index(level) < levels.index(current_level):
+        if levels.index(level) < levels.index(self.level_var.get()):
             return
 
         color = self.LEVEL_COLORS.get(level, "#000000")
-        html = f'<span style="color:{color}">[{level}]</span> {message}<br>'
-        self.text_edit.insertHtml(html)
-        # 自动滚动到底部
-        scrollbar = self.text_edit.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
+        self.text.config(state=tk.NORMAL)
+        self.text.insert(tk.END, f"[{level}] ", (level,))
+        self.text.insert(tk.END, f"{message}\n")
+        self.text.tag_config(level, foreground=color)
+        self.text.see(tk.END)
+        self.text.config(state=tk.DISABLED)
 
-    def clear(self) -> None:
-        self.text_edit.clear()
+    def clear(self):
+        self.text.config(state=tk.NORMAL)
+        self.text.delete("1.0", tk.END)
+        self.text.config(state=tk.DISABLED)
