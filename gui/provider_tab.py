@@ -131,27 +131,27 @@ class ProviderTab(tk.Frame):
             self.on_change()
 
     def _delete(self):
-        selection = self.listbox.curselection()
-        if not selection:
+        if self.current_provider_id is None:
             return
-        idx = selection[0]
-        p = self.providers[idx]
+        p = next((x for x in self.providers if x.id == self.current_provider_id), None)
+        if p is None:
+            return
         if messagebox.askyesno("确认删除", f'确定要删除 Provider "{p.name}" 吗？'):
-            self.providers.pop(idx)
-            if self.current_provider_id == p.id:
-                self.current_provider_id = self.providers[0].id if self.providers else None
+            self.providers = [x for x in self.providers if x.id != p.id]
+            self.current_provider_id = self.providers[0].id if self.providers else None
             self._refresh_list()
             self._select_by_id(self.current_provider_id)
             if self.on_change:
                 self.on_change()
 
     def _save(self):
-        selection = self.listbox.curselection()
-        if not selection:
+        if self.current_provider_id is None:
             messagebox.showwarning("提示", "请先选择一个 Provider")
             return
-        idx = selection[0]
-        p = self.providers[idx]
+        p = next((x for x in self.providers if x.id == self.current_provider_id), None)
+        if p is None:
+            messagebox.showwarning("提示", "请先选择一个 Provider")
+            return
         p.name = self.name_var.get().strip() or p.name
         p.base_url = self.url_var.get().strip()
         p.api_key = self.key_var.get().strip()
