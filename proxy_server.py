@@ -84,10 +84,11 @@ class ProxyServer:
             chat_payload = protocol_adapter.responses_to_chat_completions(body)
             self._log("DEBUG", f"Converted payload: {json.dumps(chat_payload, ensure_ascii=False)[:500]}")
 
-            # 2. 准备上游请求头
+            # 2. 准备上游请求头（伪装为 Claude Code CLI 以通过 Kimi 白名单）
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.provider.api_key}",
+                "User-Agent": "claude-code/2.1.0 (cli)",
             }
 
             target_url = self.provider.base_url.rstrip("/") + "/chat/completions"
@@ -107,6 +108,7 @@ class ProxyServer:
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.provider.api_key}",
+                "User-Agent": "claude-code/2.1.0 (cli)",
             }
             target_url = self.provider.base_url.rstrip("/") + "/chat/completions"
             stream_mode = body.get("stream", False)

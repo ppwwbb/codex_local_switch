@@ -51,6 +51,53 @@ def convert_tool_name_for_chat(tool: Dict[str, Any]) -> Dict[str, Any]:
     return tool
 
 
+def filter_and_convert_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    过滤掉 Kimi 不支持的 tool 类型（如 namespace），只保留 function 类型。
+    如果 namespace 内嵌有子 tools，会递归提取其中的 function。
+    """
+    result = []
+    for t in tools:
+        t_type = t.get("type")
+        if t_type == "function":
+            result.append(convert_tool_name_for_chat(t))
+        elif t_type == "namespace":
+            # namespace 类型可能包含子 tools，尝试提取 function
+            for sub in t.get("tools", []):
+                if sub.get("type") == "function":
+                    result.append(convert_tool_name_for_chat(sub))
+        # 忽略其他不支持的类型（plugin 等如需支持可在此扩展）
+    return result
+
+
+def convert_response_format(fmt: Any) -> Any:
+    """
+    将 Responses API 的 text.format 转换为 Chat Completions API 的 response_format。
+
+    Responses API 中 json_schema 的格式:
+        {"type": "json_schema", "name": "...", "schema": {...}, "strict": true}
+
+    Chat Completions API 中需要的格式:
+        {"type": "json_schema", "json_schema": {"name": "...", "schema": {...}, "strict": true}}
+    """
+    if not isinstance(fmt, dict):
+        return fmt
+    fmt_type = fmt.get("type")
+    if fmt_type == "json_schema":
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": fmt.get("name", "schema"),
+                "schema": fmt.get("schema", {}),
+                "strict": fmt.get("strict", False),
+            }
+        }
+    elif fmt_type == "json_object":
+        return {"type": "json_object"}
+    # 其他类型（text 等）直接透传
+    return fmt
+
+
 def responses_to_chat_completions(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     将 Responses API 请求体翻译为 Chat Completions 请求体
@@ -75,19 +122,24 @@ def responses_to_chat_completions(payload: Dict[str, Any]) -> Dict[str, Any]:
     elif "max_tokens" in payload:
         result["max_tokens"] = payload["max_tokens"]
 
-    # tools / tool_choice
+    # tools / tool_choice（过滤不支持的 namespace 等类型）
     if "tools" in payload:
-        result["tools"] = [convert_tool_name_for_chat(t) for t in payload["tools"]]
+        result["tools"] = filter_and_convert_tools(payload["tools"])
     if "tool_choice" in payload:
-        result["tool_choice"] = payload["tool_choice"]
+        tc = payload["tool_choice"]
+        # Kimi 不支持 namespace 相关的 tool_choice，若出现则回退为 auto
+        if isinstance(tc, dict) and tc.get("type") == "namespace":
+            result["tool_choice"] = "auto"
+        else:
+            result["tool_choice"] = tc
 
-    # response_format（如有）
+    # response_format（转换 json_schema 等格式差异）
     if "text" in payload and isinstance(payload["text"], dict):
         text_cfg = payload["text"]
         if text_cfg.get("format"):
-            result["response_format"] = text_cfg["format"]
+            result["response_format"] = convert_response_format(text_cfg["format"])
     elif "response_format" in payload:
-        result["response_format"] = payload["response_format"]
+        result["response_format"] = convert_response_format(payload["response_format"])
 
     return result
 
