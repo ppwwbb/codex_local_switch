@@ -16,6 +16,30 @@ from typing import Any, Dict, List, Optional, Union
 # Request 转换：Responses -> Chat Completions
 # ---------------------------------------------------------------------------
 
+def normalize_content(content: Any) -> str:
+    """
+    将 Responses API 中的 content 转换为纯文本字符串。
+
+    Responses API 的 content 可能是：
+    - 简单字符串
+    - content part 数组，如 [{"type": "input_text", "text": "..."}, ...]
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts = []
+        for part in content:
+            if isinstance(part, dict):
+                part_type = part.get("type", "")
+                if part_type in ("input_text", "output_text", "text"):
+                    texts.append(part.get("text", ""))
+                elif part_type == "refusal":
+                    texts.append(part.get("refusal", ""))
+                # input_image 等暂不支持转换为文本，直接跳过
+        return "\n".join(texts)
+    return str(content) if content is not None else ""
+
+
 def responses_input_to_messages(input_value: Any, instructions: Optional[str] = None) -> List[Dict[str, Any]]:
     """将 Responses API 的 input 字段转换为 Chat Completions 的 messages 列表"""
     messages = []
@@ -29,7 +53,7 @@ def responses_input_to_messages(input_value: Any, instructions: Optional[str] = 
         for item in input_value:
             if isinstance(item, dict):
                 role = item.get("role", "user")
-                content = item.get("content", "")
+                content = normalize_content(item.get("content", ""))
                 # Responses API 可能使用 developer role，映射为 system
                 if role == "developer":
                     role = "system"
