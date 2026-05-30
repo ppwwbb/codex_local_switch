@@ -264,132 +264,67 @@ def chat_completions_to_responses(chat_resp: Dict[str, Any]) -> Dict[str, Any]:
 # Streaming 转换：Chat Completions SSE -> Responses SSE
 # ---------------------------------------------------------------------------
 
-def build_streaming_events(chat_chunks: List[Dict[str, Any]], model: str) -> List[str]:
-    """
-    将多个 Chat Completions streaming chunk 聚合后生成 Responses streaming events 列表
-
-    注意：本函数用于聚合模式（一次性拿到所有 chunks）。
-    若需逐 chunk 实时转换，请使用 translate_chat_stream_chunk。
-    """
-    events = []
-    response_id = generate_response_id()
-    msg_id = generate_message_id()
-    created_at = int(time.time())
-
-    # 1. response.created
-    events.append(_sse_event("response.created", {
-        "type": "response.created",
-        "response": {
-            "id": response_id,
-            "object": "response",
-            "created_at": created_at,
-            "model": model,
-            "output": [],
-            "usage": None,
-        }
-    }))
-
-    # 2. 收集 content
-    content_parts = []
-    role = "assistant"
-    finish_reason = None
-
-    for chunk in chat_chunks:
-        choice = chunk.get("choices", [{}])[0]
-        delta = choice.get("delta", {})
-        if delta.get("role"):
-            role = delta["role"]
-        if delta.get("content"):
-            content_parts.append(delta["content"])
-        if choice.get("finish_reason"):
-            finish_reason = choice["finish_reason"]
-
-    text = "".join(content_parts)
-
-    if text:
-        # output_item.added
-        events.append(_sse_event("response.output_item.added", {
-            "type": "response.output_item.added",
-            "output_index": 0,
-            "item": {
-                "type": "message",
-                "id": msg_id,
-                "role": role,
-                "content": [],
-            }
-        }))
-
-        # content_part.added
-        events.append(_sse_event("response.content_part.added", {
-            "type": "response.content_part.added",
-            "output_index": 0,
-            "content_index": 0,
-            "part": {"type": "output_text", "text": ""}
-        }))
-
-        # output_text.delta
-        events.append(_sse_event("response.output_text.delta", {
-            "type": "response.output_text.delta",
-            "output_index": 0,
-            "content_index": 0,
-            "delta": text,
-        }))
-
-        # output_text.done
-        events.append(_sse_event("response.output_text.done", {
-            "type": "response.output_text.done",
-            "output_index": 0,
-            "content_index": 0,
-        }))
-
-        # output_item.done
-        events.append(_sse_event("response.output_item.done", {
-            "type": "response.output_item.done",
-            "output_index": 0,
-            "item": {
-                "type": "message",
-                "id": msg_id,
-                "role": role,
-                "content": [{"type": "output_text", "text": text}],
-            }
-        }))
-
-    # 3. response.completed
-    events.append(_sse_event("response.completed", {
-        "type": ".response.completed",
-        "response": {
-            "id": response_id,
-            "object": "response",
-            "created_at": created_at,
-            "model": model,
-            "output": [
-                {
-                    "type": "message",
-                    "id": msg_id,
-                    "role": role,
-                    "content": [{"type": "output_text", "text": text}] if text else [],
-                }
-            ] if text else [],
-            "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-            "status": "completed",
-        }
-    }))
-
-    # 4. done
-    events.append(_sse_event("done", {"type": "done"}))
-
-    return events
+def _build_envelope(response_id: str, created_at: int, model: str, status: str,
+                    original_request: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """构造 Responses 协议 envelope，回灌原始请求字段以保证协议合规。"""
+    req = original_request or {}
+    return {
+        "id": response_id,
+        "object": "response",
+        "created_at": created_at,
+        "status": status,
+        "model": model or "unknown",
+        "tools": req.get("tools", []),
+        "tool_choice": req.get("tool_choice", "auto"),
+        "parallel_tool_calls": req.get("parallel_tool_calls", True),
+        "reasoning": req.get("reasoning", {"effort": None, "summary": None}),
+        "text": req.get("text", {"format": {"type": "text"}}),
+        "metadata": req.get("metadata", None),
+        "previous_response_id": req.get("previous_response_id", None),
+        "instructions": req.get("instructions", None),
+        "temperature": req.get("temperature", None),
+        "top_p": req.get("top_p", None),
+        "max_output_tokens": req.get("max_output_tokens", None),
+        "truncation": "disabled",
+    }
 
 
-def _sse_event(event: str, data: Any) -> str:
+def _sse_event(event: str, data: Dict[str, Any], seq: int) -> str:
+    """生成 SSE event，payload 中注入 sequence_number。"""
+    data["sequence_number"] = seq
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def translate_chat_stream_chunk(chunk: Dict[str, Any], state: Dict[str, Any]) -> List[str]:
+def _normalize_usage_to_responses(usage: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """把 Chat Completions usage 翻译为 Responses 风格，并补全必需字段。"""
+    if not usage:
+        return {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens_details": {"reasoning_tokens": 0},
+        }
+    already_responses = "input_tokens" in usage or "output_tokens" in usage
+    input_tokens = usage.get("input_tokens" if already_responses else "prompt_tokens", 0)
+    output_tokens = usage.get("output_tokens" if already_responses else "completion_tokens", 0)
+    total_tokens = usage.get("total_tokens", input_tokens + output_tokens)
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "input_tokens_details": {"cached_tokens": 0},
+        "output_tokens_details": {"reasoning_tokens": 0},
+    }
+
+
+def translate_chat_stream_chunk(chunk: Dict[str, Any], state: Dict[str, Any],
+                                original_request: Optional[Dict[str, Any]] = None) -> List[str]:
     """
     逐 chunk 实时转换 Chat Completions streaming chunk -> Responses SSE events
 
     state 用于维护跨 chunk 的状态，首次调用前传 {}。
+    original_request 为入站 Responses API 原始 body，用于 envelope 回灌字段。
     返回一个 event 字符串列表（可能为空）。
     """
     events = []
@@ -397,6 +332,9 @@ def translate_chat_stream_chunk(chunk: Dict[str, Any], state: Dict[str, Any]) ->
     delta = choice.get("delta", {})
     finish_reason = choice.get("finish_reason")
     model = chunk.get("model", "")
+    usage = chunk.get("usage")
+    if not usage and choice.get("usage"):
+        usage = choice["usage"]
 
     # 初始化状态
     if "response_id" not in state:
@@ -407,24 +345,41 @@ def translate_chat_stream_chunk(chunk: Dict[str, Any], state: Dict[str, Any]) ->
         state["started"] = False
         state["content_started"] = False
         state["done"] = False
+        state["seq"] = 0
+        state["buffer"] = ""
+        state["finish_reason"] = None
+        state["usage"] = None
+
+        # response.created + response.in_progress（OpenAI 协议要求成对出现）
+        envelope = _build_envelope(state["response_id"], state["created_at"], model, "in_progress", original_request)
+        envelope["output"] = []
+        envelope["usage"] = None
+        envelope["incomplete_details"] = None
+        envelope["error"] = None
 
         events.append(_sse_event("response.created", {
             "type": "response.created",
-            "response": {
-                "id": state["response_id"],
-                "object": "response",
-                "created_at": state["created_at"],
-                "model": model,
-                "output": [],
-                "usage": None,
-            }
-        }))
+            "response": envelope.copy(),
+        }, state["seq"]))
+        state["seq"] += 1
+
+        events.append(_sse_event("response.in_progress", {
+            "type": "response.in_progress",
+            "response": envelope,
+        }, state["seq"]))
+        state["seq"] += 1
 
     if state.get("done"):
         return events
 
     if delta.get("role"):
         state["role"] = delta["role"]
+
+    if model and not state.get("model"):
+        state["model"] = model
+
+    if usage:
+        state["usage"] = usage
 
     # 开始 output item
     if not state["started"]:
@@ -434,11 +389,13 @@ def translate_chat_stream_chunk(chunk: Dict[str, Any], state: Dict[str, Any]) ->
             "output_index": 0,
             "item": {
                 "type": "message",
-                "id": state["msg_id"],
+                "status": "in_progress",
                 "role": state["role"],
+                "id": state["msg_id"],
                 "content": [],
             }
-        }))
+        }, state["seq"]))
+        state["seq"] += 1
 
     content = delta.get("content")
     if content and not state["content_started"]:
@@ -447,54 +404,97 @@ def translate_chat_stream_chunk(chunk: Dict[str, Any], state: Dict[str, Any]) ->
             "type": "response.content_part.added",
             "output_index": 0,
             "content_index": 0,
-            "part": {"type": "output_text", "text": ""}
-        }))
+            "part": {"type": "output_text", "text": "", "annotations": []}
+        }, state["seq"]))
+        state["seq"] += 1
 
     if content:
+        state["buffer"] += content
         events.append(_sse_event("response.output_text.delta", {
             "type": "response.output_text.delta",
+            "item_id": state["msg_id"],
             "output_index": 0,
             "content_index": 0,
             "delta": content,
-        }))
+        }, state["seq"]))
+        state["seq"] += 1
 
     if finish_reason:
+        state["finish_reason"] = finish_reason
         if state["content_started"]:
             events.append(_sse_event("response.output_text.done", {
                 "type": "response.output_text.done",
+                "item_id": state["msg_id"],
                 "output_index": 0,
                 "content_index": 0,
-            }))
+                "text": state["buffer"],
+            }, state["seq"]))
+            state["seq"] += 1
+
+            events.append(_sse_event("response.content_part.done", {
+                "type": "response.content_part.done",
+                "item_id": state["msg_id"],
+                "output_index": 0,
+                "content_index": 0,
+                "part": {
+                    "type": "output_text",
+                    "text": state["buffer"],
+                    "annotations": [],
+                },
+            }, state["seq"]))
+            state["seq"] += 1
 
         events.append(_sse_event("response.output_item.done", {
             "type": "response.output_item.done",
             "output_index": 0,
             "item": {
                 "type": "message",
-                "id": state["msg_id"],
+                "status": "completed",
                 "role": state["role"],
-                "content": [{"type": "output_text", "text": state.get("buffer", "")}] if state.get("buffer") else [],
+                "id": state["msg_id"],
+                "content": [{"type": "output_text", "text": state["buffer"], "annotations": []}],
             }
-        }))
+        }, state["seq"]))
+        state["seq"] += 1
+
+        # response.completed envelope
+        status = "completed"
+        incomplete_details = None
+        if finish_reason in ("stop", "tool_calls", "function_call"):
+            status = "completed"
+        elif finish_reason == "length":
+            status = "incomplete"
+            incomplete_details = {"reason": "max_output_tokens"}
+        elif finish_reason == "content_filter":
+            status = "incomplete"
+            incomplete_details = {"reason": "content_filter"}
+        elif finish_reason:
+            status = "incomplete"
+            incomplete_details = {"reason": finish_reason}
+
+        envelope = _build_envelope(state["response_id"], state["created_at"],
+                                   state.get("model", model), status, original_request)
+        envelope["output"] = [
+            {
+                "type": "message",
+                "status": "completed",
+                "role": state["role"],
+                "id": state["msg_id"],
+                "content": [{"type": "output_text", "text": state["buffer"], "annotations": []}],
+            }
+        ]
+        envelope["incomplete_details"] = incomplete_details
+        envelope["error"] = None
+        envelope["usage"] = _normalize_usage_to_responses(state.get("usage"))
 
         events.append(_sse_event("response.completed", {
             "type": "response.completed",
-            "response": {
-                "id": state["response_id"],
-                "object": "response",
-                "created_at": state["created_at"],
-                "model": model,
-                "output": [],
-                "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-                "status": "completed",
-            }
-        }))
+            "response": envelope,
+        }, state["seq"]))
+        state["seq"] += 1
 
-        events.append(_sse_event("done", {"type": "done"}))
+        events.append(_sse_event("done", {"type": "done"}, state["seq"]))
+        state["seq"] += 1
         state["done"] = True
-
-    # 缓存已输出内容（用于最终的 output_item.done）
-    if content:
-        state["buffer"] = state.get("buffer", "") + content
 
     return events

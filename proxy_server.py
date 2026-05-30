@@ -95,7 +95,7 @@ class ProxyServer:
             stream_mode = body.get("stream", False)
 
             if stream_mode:
-                return await self._handle_streaming(target_url, headers, chat_payload, body.get("model", ""))
+                return await self._handle_streaming(target_url, headers, chat_payload, body.get("model", ""), body)
             else:
                 return await self._handle_non_streaming(target_url, headers, chat_payload)
 
@@ -135,7 +135,8 @@ class ProxyServer:
             self._log("ERROR", f"Proxy error: {str(e)}")
             return JSONResponse({"error": "Proxy internal error", "detail": str(e)}, status_code=500)
 
-    async def _handle_streaming(self, url: str, headers: Dict[str, str], payload: Dict[str, Any], model: str) -> StreamingResponse:
+    async def _handle_streaming(self, url: str, headers: Dict[str, str], payload: Dict[str, Any],
+                                 model: str, original_request: Optional[Dict[str, Any]] = None) -> StreamingResponse:
         async def event_generator():
             state = {}
             try:
@@ -144,7 +145,7 @@ class ProxyServer:
                     if resp.status_code != 200:
                         err_text = await resp.aread()
                         self._log("ERROR", f"Upstream streaming error: {err_text.decode()[:500]}")
-                        yield protocol_adapter._sse_event("error", {"error": err_text.decode()})
+                        yield protocol_adapter._sse_event("error", {"error": err_text.decode()}, 0)
                         return
 
                     async for line in resp.aiter_lines():
@@ -152,21 +153,54 @@ class ProxyServer:
                             continue
                         data_str = line[len("data: "):]
                         if data_str.strip() == "[DONE]":
-                            # 确保发送 completed 事件
+                            # 兜底：若上游在 [DONE] 前未发 finish_reason，补 emit close
                             if not state.get("done"):
+                                seq = state.get("seq", 0)
+                                status = "completed"
+                                incomplete_details = None
+                                finish_reason = state.get("finish_reason")
+                                if finish_reason in ("stop", "tool_calls", "function_call"):
+                                    status = "completed"
+                                    incomplete_details = None
+                                elif finish_reason == "length":
+                                    status = "incomplete"
+                                    incomplete_details = {"reason": "max_output_tokens"}
+                                elif finish_reason == "content_filter":
+                                    status = "incomplete"
+                                    incomplete_details = {"reason": "content_filter"}
+                                elif finish_reason:
+                                    status = "incomplete"
+                                    incomplete_details = {"reason": finish_reason}
+                                else:
+                                    status = "incomplete"
+                                    incomplete_details = {"reason": "interrupted"}
+
+                                envelope = protocol_adapter._build_envelope(
+                                    state.get("response_id", ""),
+                                    state.get("created_at", int(time.time())),
+                                    state.get("model", model),
+                                    status,
+                                    original_request,
+                                )
+                                output = []
+                                if state.get("buffer"):
+                                    output.append({
+                                        "type": "message",
+                                        "status": "completed",
+                                        "role": state.get("role", "assistant"),
+                                        "id": state.get("msg_id", ""),
+                                        "content": [{"type": "output_text", "text": state["buffer"], "annotations": []}],
+                                    })
+                                envelope["output"] = output
+                                envelope["incomplete_details"] = incomplete_details
+                                envelope["error"] = None
+                                envelope["usage"] = protocol_adapter._normalize_usage_to_responses(state.get("usage"))
+
                                 yield protocol_adapter._sse_event("response.completed", {
                                     "type": "response.completed",
-                                    "response": {
-                                        "id": state.get("response_id", ""),
-                                        "object": "response",
-                                        "created_at": state.get("created_at", int(time.time())),
-                                        "model": model,
-                                        "output": [],
-                                        "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-                                        "status": "completed",
-                                    }
-                                })
-                                yield protocol_adapter._sse_event("done", {"type": "done"})
+                                    "response": envelope,
+                                }, seq)
+                                yield protocol_adapter._sse_event("done", {"type": "done"}, seq + 1)
                             break
 
                         try:
@@ -174,12 +208,12 @@ class ProxyServer:
                         except json.JSONDecodeError:
                             continue
 
-                        events = protocol_adapter.translate_chat_stream_chunk(chunk, state)
+                        events = protocol_adapter.translate_chat_stream_chunk(chunk, state, original_request)
                         for ev in events:
                             yield ev
             except Exception as e:
                 self._log("ERROR", f"Streaming error: {str(e)}")
-                yield protocol_adapter._sse_event("error", {"error": str(e)})
+                yield protocol_adapter._sse_event("error", {"error": str(e)}, 0)
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
