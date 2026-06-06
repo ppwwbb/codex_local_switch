@@ -1,21 +1,37 @@
 """
-主窗口（tkinter 版本），整合 Provider 配置与代理控制
+主窗口（customtkinter 现代化版本）
+整合 Provider 配置与代理控制
 """
-import tkinter as tk
-from tkinter import ttk, messagebox
+import sys
+
+# Windows 高 DPI 适配，必须在创建窗口前调用
+if sys.platform == "win32":
+    try:
+        from ctypes import windll
+        windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+
+import customtkinter as ctk
+from tkinter import messagebox
 
 from config import AppConfig, save_config, load_config
 from proxy_server import ProxyServer
 from gui.provider_tab import ProviderTab
 from gui.proxy_tab import ProxyTab
 
+# 设置 customtkinter 默认主题
+ctk.set_appearance_mode("light")
+ctk.set_default_color_theme("blue")
+
 
 class MainWindow:
-    def __init__(self, root: tk.Tk):
-        self.root = root
+    def __init__(self):
+        self.root = ctk.CTk()
         self.root.title("LocalSwitch - API 代理")
-        self.root.geometry("860x640")
-        self.root.minsize(700, 500)
+        self.root.geometry("1000x720")
+        self.root.minsize(900, 600)
+        self.root.configure(fg_color="#F5F5F7")
 
         self.config = load_config()
         self.proxy = ProxyServer(
@@ -31,24 +47,66 @@ class MainWindow:
         self._check_status()
 
     def _init_ui(self):
-        # Notebook 标签页
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        # 顶部标题栏
+        self._build_header()
+
+        # TabView 标签页
+        self.tabview = ctk.CTkTabview(
+            self.root,
+            fg_color="transparent",
+            segmented_button_fg_color="#FFFFFF",
+            segmented_button_selected_color="#FF6B35",
+            segmented_button_selected_hover_color="#E55A2B",
+            segmented_button_unselected_color="#F0F0F0",
+            segmented_button_unselected_hover_color="#E8E8E8",
+            text_color="#333333",
+            corner_radius=12,
+            border_width=0,
+        )
+        self.tabview.pack(fill="both", expand=True, padx=20, pady=(0, 16))
 
         # Provider 标签页
-        self.provider_tab = ProviderTab(self.notebook, on_change=self._save_config)
-        self.notebook.add(self.provider_tab, text="Provider 配置")
+        self.provider_tab = ProviderTab(self.tabview.add("Provider 配置"), on_change=self._save_config)
 
         # 代理控制标签页
-        self.proxy_tab = ProxyTab(self.notebook, on_toggle=self._toggle_proxy, on_change=self._save_config)
-        self.notebook.add(self.proxy_tab, text="代理控制")
+        self.proxy_tab = ProxyTab(self.tabview.add("代理控制"), on_toggle=self._toggle_proxy, on_change=self._save_config)
 
         # 状态栏
-        self.status_var = tk.StringVar(value="就绪")
-        status_bar = tk.Label(self.root, textvariable=self.status_var, bd=1, relief=tk.SUNKEN, anchor=tk.W)
-        status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.status_var = ctk.StringVar(value="就绪")
+        self.status_bar = ctk.CTkLabel(
+            self.root,
+            textvariable=self.status_var,
+            font=("Microsoft YaHei", 11),
+            text_color="#888888",
+            fg_color="#FFFFFF",
+            corner_radius=0,
+            anchor="w",
+            height=32,
+        )
+        self.status_bar.pack(side="bottom", fill="x", padx=0, pady=0)
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _build_header(self):
+        header = ctk.CTkFrame(self.root, fg_color="#FFFFFF", height=56, corner_radius=0)
+        header.pack(side="top", fill="x")
+        header.pack_propagate(False)
+
+        title = ctk.CTkLabel(
+            header,
+            text="LocalSwitch",
+            font=("Microsoft YaHei", 18, "bold"),
+            text_color="#1A1A1A",
+        )
+        title.pack(side="left", padx=(20, 8), pady=8)
+
+        subtitle = ctk.CTkLabel(
+            header,
+            text="API 协议转换代理",
+            font=("Microsoft YaHei", 12),
+            text_color="#888888",
+        )
+        subtitle.pack(side="left", pady=8)
 
     def _apply_config(self):
         self.provider_tab.load_providers(self.config.providers, self.config.current_provider_id)
@@ -93,7 +151,6 @@ class MainWindow:
         try:
             self.proxy.start()
             self.proxy_tab.set_running(True)
-            self.proxy_tab.set_entries_state("disabled")
             self.status_var.set(f"代理已启动: http://{self.proxy.host}:{self.proxy.port}")
             self.proxy_tab.log("INFO", f"代理启动成功，监听 http://{self.proxy.host}:{self.proxy.port}")
             self.proxy_tab.log("INFO", f"当前上游: {provider.name} ({provider.base_url})")
@@ -104,23 +161,15 @@ class MainWindow:
     def _stop_proxy(self):
         self.proxy.stop()
         self.proxy_tab.set_running(False)
-        self.proxy_tab.set_entries_state("normal")
         self.status_var.set("代理已停止")
         self.proxy_tab.log("INFO", "代理已停止")
 
     def _check_status(self):
-        """定时检查代理状态"""
         is_running = self.proxy.is_running()
-        # 如果界面显示运行中但实际已停止
-        if not is_running and self.proxy_tab.start_btn.cget("text") == "⏹ 停止代理":
-            self.proxy_tab.set_running(False)
-            self.proxy_tab.set_entries_state("normal")
-            self.proxy_tab.log("WARNING", "代理意外停止")
+        self.proxy_tab.set_running(is_running)
         self.root.after(1000, self._check_status)
 
     def _on_proxy_log(self, level, message):
-        """代理日志回调"""
-        # tkinter 不是线程安全的，需要用 after 切换到主线程
         self.root.after(0, lambda: self.proxy_tab.log(level, message))
 
     def _on_close(self):
@@ -129,9 +178,10 @@ class MainWindow:
             self.proxy.stop()
         self.root.destroy()
 
+    def run(self):
+        self.root.mainloop()
 
-def run():
-    root = tk.Tk()
-    root.option_add("*Font", "Arial 10")
-    app = MainWindow(root)
-    root.mainloop()
+
+def run_app():
+    app = MainWindow()
+    app.run()

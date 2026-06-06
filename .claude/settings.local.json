@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -m py_compile proxy_server.py protocol_adapter.py)"
+      "Bash(python -m py_compile proxy_server.py protocol_adapter.py)",
+      "Bash(pip install *)",
+      "Bash(python -c \"from gui.main_window import MainWindow; print\\('GUI import OK'\\)\")"
     ]
   }
 }

@@ -149,10 +149,12 @@ class ProxyServer:
                         return
 
                     async for line in resp.aiter_lines():
-                        if not line.startswith("data: "):
+                        # 兼容 data:xxx 和 data: xxx（Kimi 部分返回无空格）
+                        if not line.startswith("data:"):
                             continue
-                        data_str = line[len("data: "):]
-                        if data_str.strip() == "[DONE]":
+                        data_str = line[len("data:"):].strip()
+                        if data_str == "[DONE]":
+                            self._log("DEBUG", "Upstream sent [DONE]")
                             # 兜底：若上游在 [DONE] 前未发 finish_reason，补 emit close
                             if not state.get("done"):
                                 seq = state.get("seq", 0)
@@ -203,12 +205,16 @@ class ProxyServer:
                                 yield protocol_adapter._sse_event("done", {"type": "done"}, seq + 1)
                             break
 
+                        if not data_str:
+                            continue
+                        self._log("DEBUG", f"Upstream SSE data: {data_str[:300]}")
                         try:
                             chunk = json.loads(data_str)
                         except json.JSONDecodeError:
                             continue
 
                         events = protocol_adapter.translate_chat_stream_chunk(chunk, state, original_request)
+                        self._log("DEBUG", f"Translated {len(events)} events, seq={state.get('seq', 0)}")
                         for ev in events:
                             yield ev
             except Exception as e:

@@ -1,80 +1,204 @@
 """
-代理控制标签页（tkinter 版本）
-- 监听地址/端口配置
-- 启动/停止代理按钮
+代理控制标签页（customtkinter 现代化版本）
+- 状态卡片
+- 启动/停止控制
 - 实时日志输出
-- 使用提示
+- 统计卡片
 """
-import tkinter as tk
-from tkinter import ttk
+import customtkinter as ctk
 
 from gui.log_widget import LogWidget
 
 
-class ProxyTab(tk.Frame):
-    def __init__(self, master=None, on_toggle=None, on_change=None, **kwargs):
-        super().__init__(master, **kwargs)
+class ProxyTab:
+    def __init__(self, master, on_toggle=None, on_change=None):
+        self.master = master
         self.on_toggle = on_toggle
         self.on_change = on_change
         self._init_ui()
 
     def _init_ui(self):
-        pad = {"padx": 12, "pady": 6}
+        self.master.grid_columnconfigure(0, weight=1)
+        self.master.grid_rowconfigure(2, weight=1)
 
-        # 代理配置
-        config_frame = tk.LabelFrame(self, text="代理监听配置", padx=10, pady=10)
-        config_frame.pack(fill=tk.X, **pad)
+        # ===== 顶部状态卡片 =====
+        status_card = ctk.CTkFrame(self.master, fg_color="#FFFFFF", corner_radius=16)
+        status_card.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 12))
+        status_card.grid_columnconfigure(1, weight=1)
 
-        tk.Label(config_frame, text="监听地址:").grid(row=0, column=0, sticky=tk.W, pady=4)
-        self.host_var = tk.StringVar(value="127.0.0.1")
-        tk.Entry(config_frame, textvariable=self.host_var, width=20).grid(row=0, column=1, sticky=tk.W, padx=(8, 0))
+        # 左侧状态
+        left = ctk.CTkFrame(status_card, fg_color="transparent")
+        left.pack(side="left", padx=16, pady=14)
 
-        tk.Label(config_frame, text="监听端口:").grid(row=1, column=0, sticky=tk.W, pady=4)
-        self.port_var = tk.StringVar(value="8317")
-        tk.Entry(config_frame, textvariable=self.port_var, width=20).grid(row=1, column=1, sticky=tk.W, padx=(8, 0))
-
-        # 控制按钮
-        ctrl_frame = tk.Frame(self)
-        ctrl_frame.pack(fill=tk.X, **pad)
-
-        self.start_btn = tk.Button(
-            ctrl_frame, text="▶ 启动代理", bg="#28a745", fg="white",
-            font=("Arial", 11), padx=12, pady=6, command=self._toggle
+        self.status_dot = ctk.CTkLabel(
+            left,
+            text="●",
+            font=("Microsoft YaHei", 16),
+            text_color="#FF4444",
         )
-        self.start_btn.pack(side=tk.LEFT)
+        self.status_dot.pack(side="left")
 
-        self.status_label = tk.Label(ctrl_frame, text="状态: 未运行", fg="#999")
-        self.status_label.pack(side=tk.LEFT, padx=(12, 0))
+        self.status_text = ctk.CTkLabel(
+            left,
+            text="已停止",
+            font=("Microsoft YaHei", 14, "bold"),
+            text_color="#FF4444",
+        )
+        self.status_text.pack(side="left", padx=(6, 4))
 
-        # 使用提示
-        tip_frame = tk.LabelFrame(self, text="使用提示", padx=10, pady=10)
-        tip_frame.pack(fill=tk.X, **pad)
+        self.listen_label = ctk.CTkLabel(
+            left,
+            text="本机监听",
+            font=("Microsoft YaHei", 12),
+            text_color="#888888",
+        )
+        self.listen_label.pack(side="left")
 
-        tip_text = tk.Text(tip_frame, wrap=tk.WORD, height=6, state=tk.DISABLED)
-        tip_text.pack(fill=tk.X)
-        tip_text.config(state=tk.NORMAL)
-        tip_text.insert("1.0",
+        # 右侧控制
+        right = ctk.CTkFrame(status_card, fg_color="transparent")
+        right.pack(side="right", padx=16, pady=14)
+
+        ctk.CTkLabel(
+            right,
+            text="转发端口",
+            font=("Microsoft YaHei", 12),
+            text_color="#666666",
+        ).pack(side="left", padx=(0, 8))
+
+        self.port_var = ctk.StringVar(value="8317")
+        self.port_entry = ctk.CTkEntry(
+            right,
+            textvariable=self.port_var,
+            width=80,
+            height=32,
+            font=("Microsoft YaHei", 12),
+            corner_radius=8,
+            fg_color="#F5F5F7",
+            border_color="#E0E0E0",
+            text_color="#333333",
+        )
+        self.port_entry.pack(side="left", padx=(0, 12))
+
+        self.start_btn = ctk.CTkButton(
+            right,
+            text="▶ 启动代理",
+            width=110,
+            height=34,
+            font=("Microsoft YaHei", 12, "bold"),
+            fg_color="#FF6B35",
+            hover_color="#E55A2B",
+            text_color="#FFFFFF",
+            corner_radius=10,
+            command=self._toggle,
+        )
+        self.start_btn.pack(side="left", padx=(0, 8))
+
+        self.stop_btn = ctk.CTkButton(
+            right,
+            text="⏹ 停止代理",
+            width=110,
+            height=34,
+            font=("Microsoft YaHei", 12, "bold"),
+            fg_color="#FF4444",
+            hover_color="#DD3333",
+            text_color="#FFFFFF",
+            corner_radius=10,
+            command=self._toggle,
+        )
+        self.stop_btn.pack(side="left")
+        self.stop_btn.pack_forget()  # 默认隐藏
+
+        # ===== 使用提示 =====
+        tip_card = ctk.CTkFrame(self.master, fg_color="#FFF8F5", corner_radius=12, border_width=1, border_color="#FFE0D0")
+        tip_card.grid(row=1, column=0, sticky="ew", padx=4, pady=(0, 12))
+
+        tip_inner = ctk.CTkFrame(tip_card, fg_color="transparent")
+        tip_inner.pack(fill="x", padx=14, pady=10)
+
+        ctk.CTkLabel(
+            tip_inner,
+            text="使用提示",
+            font=("Microsoft YaHei", 12, "bold"),
+            text_color="#FF6B35",
+        ).pack(anchor="w", pady=(0, 6))
+
+        tips = (
             "1. 在 Provider 标签页配置好 Kimi Code 的 API Key 和 Base URL\n"
             "2. 点击「启动代理」后，代理会监听上方配置的地址\n"
             "3. 在 Codex 或 Claude Code 中设置环境变量:\n"
             "   ANTHROPIC_BASE_URL=http://127.0.0.1:8317/v1\n"
-            "   ANTHROPIC_AUTH_TOKEN=任意值（代理会自动替换为真实 Key）\n"
-            "4. 若 Codex 使用 OpenAI 协议，则设置:\n"
-            "   OPENAI_BASE_URL=http://127.0.0.1:8317/v1"
+            "   ANTHROPIC_AUTH_TOKEN=任意值（代理会自动替换为真实 Key）"
         )
-        tip_text.config(state=tk.DISABLED)
+        ctk.CTkLabel(
+            tip_inner,
+            text=tips,
+            font=("Microsoft YaHei", 11),
+            text_color="#666666",
+            justify="left",
+        ).pack(anchor="w")
 
-        # 日志
-        tk.Label(self, text="运行日志:", font=("Arial", 10, "bold")).pack(anchor=tk.W, padx=(12, 0))
-        self.log_widget = LogWidget(self)
-        self.log_widget.pack(fill=tk.BOTH, expand=True, **pad)
+        # ===== 日志区域 =====
+        self.log_widget = LogWidget(self.master)
+        self.log_widget.grid(row=2, column=0, sticky="nsew", padx=4, pady=(0, 12))
+
+        # ===== 底部统计卡片 =====
+        stats_frame = ctk.CTkFrame(self.master, fg_color="transparent")
+        stats_frame.grid(row=3, column=0, sticky="ew", padx=4, pady=(0, 4))
+        stats_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+
+        self.stat_cards = []
+        stat_configs = [
+            ("总请求", "●", "#4FC3F7", "0"),
+            ("成功", "●", "#81C784", "0"),
+            ("失败", "●", "#EF5350", "0"),
+            ("今日", "●", "#FFB74D", "0"),
+        ]
+
+        for i, (title, icon, color, value) in enumerate(stat_configs):
+            card = self._build_stat_card(stats_frame, title, icon, color, value)
+            card.grid(row=0, column=i, sticky="nsew", padx=(0 if i == 0 else 8, 0))
+            self.stat_cards.append((card, title, value))
+
+    def _build_stat_card(self, parent, title, icon, color, value):
+        card = ctk.CTkFrame(parent, fg_color="#FFFFFF", corner_radius=12, border_width=1, border_color="#E8E8E8")
+        card.grid_columnconfigure(0, weight=1)
+
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=14, pady=12)
+
+        top = ctk.CTkFrame(inner, fg_color="transparent")
+        top.pack(fill="x")
+
+        ctk.CTkLabel(
+            top,
+            text=icon,
+            font=("Microsoft YaHei", 18),
+            text_color=color,
+        ).pack(side="left")
+
+        ctk.CTkLabel(
+            top,
+            text=title,
+            font=("Microsoft YaHei", 12),
+            text_color="#888888",
+        ).pack(side="left", padx=(8, 0))
+
+        value_label = ctk.CTkLabel(
+            inner,
+            text=value,
+            font=("Microsoft YaHei", 24, "bold"),
+            text_color="#1A1A1A",
+        )
+        value_label.pack(anchor="w", pady=(4, 0))
+
+        return card
 
     def load_config(self, host, port):
-        self.host_var.set(host)
+        self.host = host
         self.port_var.set(str(port))
 
     def get_host(self):
-        return self.host_var.get().strip() or "127.0.0.1"
+        return getattr(self, 'host', '127.0.0.1')
 
     def get_port(self):
         try:
@@ -88,22 +212,17 @@ class ProxyTab(tk.Frame):
 
     def set_running(self, running):
         if running:
-            self.start_btn.config(text="⏹ 停止代理", bg="#dc3545")
-            self.status_label.config(text="状态: 运行中", fg="#28a745", font=("Arial", 9, "bold"))
-            self.host_var.trace_add("write", lambda *args: None)  # tk.Entry 没有 setEnabled，直接 disable
-            for w in [self.host_var, self.port_var]:
-                pass  # tkinter StringVar 不能直接 disable widget，需要在主窗口控制
+            self.status_dot.configure(text_color="#28C76F")
+            self.status_text.configure(text="运行中", text_color="#28C76F")
+            self.start_btn.pack_forget()
+            self.stop_btn.pack(side="left", padx=(0, 8))
+            self.port_entry.configure(state="disabled")
         else:
-            self.start_btn.config(text="▶ 启动代理", bg="#28a745")
-            self.status_label.config(text="状态: 未运行", fg="#999", font=("Arial", 9))
-
-    def set_entries_state(self, state):
-        """由主窗口调用，启用或禁用输入框"""
-        for child in self.winfo_children():
-            if isinstance(child, tk.LabelFrame) and child.cget("text") == "代理监听配置":
-                for widget in child.winfo_children():
-                    if isinstance(widget, tk.Entry):
-                        widget.config(state=state)
+            self.status_dot.configure(text_color="#FF4444")
+            self.status_text.configure(text="已停止", text_color="#FF4444")
+            self.stop_btn.pack_forget()
+            self.start_btn.pack(side="left", padx=(0, 8))
+            self.port_entry.configure(state="normal")
 
     def log(self, level, message):
         self.log_widget.log(level, message)

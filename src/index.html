@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LocalSwitch</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- 顶部标题栏 -->
+    <header class="app-header">
+        <div class="header-left">
+            <h1 class="app-title">LocalSwitch</h1>
+            <span class="app-subtitle">API 协议转换代理</span>
+        </div>
+        <div class="header-right">
+            <button class="icon-btn" id="settingsBtn" title="设置">⚙</button>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="app-main">
+        <!-- Tab 导航 -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="providers">Provider 配置</button>
+            <button class="tab-btn" data-tab="proxy">代理控制</button>
+            <button class="tab-btn" data-tab="settings">设置</button>
+        </nav>
+
+        <!-- Provider 配置页 -->
+        <section class="tab-content active" id="providers-tab">
+            <!-- 已配置的 Provider 列表 -->
+            <div class="provider-section" id="activeProvidersSection">
+                <div class="section-header">
+                    <h3>已配置的 Provider</h3>
+                </div>
+                <div class="provider-cards" id="providersList">
+                    <!-- 动态填充 -->
+                </div>
+            </div>
+
+            <!-- 继续添加提供商 -->
+            <div class="provider-section">
+                <div class="section-header">
+                    <h3>继续添加提供商</h3>
+                    <p class="section-desc">这里会一直保留还没添加的厂商，点一个就能带着预设进入添加页。</p>
+                </div>
+                <div class="provider-cards" id="presetProvidersList">
+                    <!-- 预设 Provider -->
+                </div>
+            </div>
+        </section>
+
+        <!-- 代理控制页 -->
+        <section class="tab-content" id="proxy-tab">
+            <!-- 状态卡片 -->
+            <div class="status-card">
+                <div class="status-left">
+                    <span class="status-dot" id="statusDot">●</span>
+                    <span class="status-text" id="statusText">已停止</span>
+                    <span class="status-desc">本机监听</span>
+                </div>
+                <div class="status-right">
+                    <div class="port-control">
+                        <label>转发端口</label>
+                        <input type="number" id="proxyPort" class="port-input" value="8317" min="1" max="65535">
+                    </div>
+                    <button class="btn btn-primary" id="startProxyBtn">▶ 启动代理</button>
+                    <button class="btn btn-danger" id="stopProxyBtn" style="display:none">⏹ 停止代理</button>
+                </div>
+            </div>
+
+            <!-- 使用提示 -->
+            <div class="tip-card">
+                <h4>使用提示</h4>
+                <p>1. 在 Provider 标签页配置好 Kimi Code 的 API Key 和 Base URL</p>
+                <p>2. 点击「启动代理」后，代理会监听上方配置的地址</p>
+                <p>3. 在 Codex 或 Claude Code 中设置环境变量:</p>
+                <code>ANTHROPIC_BASE_URL=http://127.0.0.1:8317/v1</code>
+            </div>
+
+            <!-- 日志区域 -->
+            <div class="log-section">
+                <div class="log-toolbar">
+                    <div class="log-left">
+                        <label>日志级别:</label>
+                        <select id="logLevel" class="log-select">
+                            <option value="DEBUG">DEBUG</option>
+                            <option value="INFO" selected>INFO</option>
+                            <option value="WARNING">WARNING</option>
+                            <option value="ERROR">ERROR</option>
+                        </select>
+                        <button class="btn btn-ghost btn-sm" id="clearLogBtn">清除日志</button>
+                    </div>
+                    <div class="log-right">
+                        <label class="switch-label">
+                            <input type="checkbox" id="autoScroll" checked>
+                            <span class="switch-slider"></span>
+                            自动滚动
+                        </label>
+                    </div>
+                </div>
+                <div class="log-container" id="logContainer">
+                    <div class="log-empty">暂无日志</div>
+                </div>
+            </div>
+
+            <!-- 统计卡片 -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon" style="color:#4FC3F7">●</div>
+                    <div class="stat-title">总请求</div>
+                    <div class="stat-value" id="statTotal">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="color:#81C784">●</div>
+                    <div class="stat-title">成功</div>
+                    <div class="stat-value" id="statSuccess">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="color:#EF5350">●</div>
+                    <div class="stat-title">失败</div>
+                    <div class="stat-value" id="statFailed">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="color:#FFB74D">●</div>
+                    <div class="stat-title">今日</div>
+                    <div class="stat-value" id="statToday">0</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 设置页 -->
+        <section class="tab-content" id="settings-tab">
+            <div class="settings-card">
+                <h3>应用设置</h3>
+                <div class="setting-item">
+                    <label>主题</label>
+                    <div class="theme-options">
+                        <button class="theme-btn active" data-theme="light">☀ 浅色</button>
+                        <button class="theme-btn" data-theme="dark">🌙 深色</button>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <label>语言</label>
+                    <select class="form-input" id="language">
+                        <option value="zh">中文</option>
+                        <option value="en">English</option>
+                    </select>
+                </div>
+                <div class="setting-item">
+                    <label>监听地址</label>
+                    <input type="text" class="form-input" id="listenHost" value="127.0.0.1">
+                </div>
+                <div class="setting-item">
+                    <label>开机自启</label>
+                    <label class="switch-label">
+                        <input type="checkbox" id="autoStart">
+                        <span class="switch-slider"></span>
+                    </label>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 状态栏 -->
+    <footer class="app-footer">
+        <span id="footerStatus">就绪</span>
+    </footer>
+
+    <!-- Provider 配置模态框 -->
+    <div class="modal-overlay" id="providerModal" style="display:none">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="modalTitle">编辑 Provider</h3>
+                <button class="modal-close" id="modalClose">&times;</button>
+            </div>
+            <form class="modal-body" id="modalForm">
+                <div class="form-group">
+                    <label>名称</label>
+                    <input type="text" id="mName" class="form-input" placeholder="Provider 名称">
+                </div>
+                <div class="form-group">
+                    <label>Base URL</label>
+                    <input type="text" id="mUrl" class="form-input" placeholder="https://api.example.com/v1">
+                </div>
+                <div class="form-group">
+                    <label>API Key</label>
+                    <div class="input-with-toggle">
+                        <input type="password" id="mKey" class="form-input" placeholder="sk-...">
+                        <button type="button" class="toggle-key-btn" id="mToggleKey">显示</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>默认模型</label>
+                    <input type="text" id="mModel" class="form-input" placeholder="模型 ID">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-ghost" id="modalCancel">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="main.js"></script>
+</body>
+</html>

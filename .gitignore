@@ -38,6 +38,14 @@ ENV/
 # PyInstaller
 *.spec
 
+# Tauri build artifacts
+src-tauri/target/
+src-tauri/binaries/
+
+# Claude settings (personal)
+.claude/settings.json
+.claude/settings.local.json
+
 # OS
 .DS_Store
 Thumbs.db

@@ -328,8 +328,11 @@ def translate_chat_stream_chunk(chunk: Dict[str, Any], state: Dict[str, Any],
     返回一个 event 字符串列表（可能为空）。
     """
     events = []
-    choice = chunk.get("choices", [{}])[0]
-    delta = choice.get("delta", {})
+    choices = chunk.get("choices")
+    if choices is None or len(choices) == 0:
+        choices = [{}]
+    choice = choices[0]
+    delta = choice.get("delta") or {}
     finish_reason = choice.get("finish_reason")
     model = chunk.get("model", "")
     usage = chunk.get("usage")
@@ -398,6 +401,11 @@ def translate_chat_stream_chunk(chunk: Dict[str, Any], state: Dict[str, Any],
         state["seq"] += 1
 
     content = delta.get("content")
+    if isinstance(content, list):
+        content = normalize_content(content)
+    elif not isinstance(content, str):
+        content = str(content) if content is not None else ""
+
     if content and not state["content_started"]:
         state["content_started"] = True
         events.append(_sse_event("response.content_part.added", {
