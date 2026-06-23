@@ -1,5 +1,7 @@
 # LocalSwitch
 
+2026.6.23  codex官方已支持，项目废弃
+
 本地 API 协议转换代理，解决 Codex 与 Kimi Code 等仅兼容 Chat Completions API 的端点之间的协议不匹配问题。
 
 ## 项目背景
